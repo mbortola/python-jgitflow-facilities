@@ -9,8 +9,6 @@ import gitlab
 import tempfile
 from secrets import GITLAB_HOST
 
-PROJECT_GIT = 'git@gitlab.mgmt.infocert.it:lcert/%s.git'
-
 MAVEN_RELEASE_START_CMD = '%s jgitflow:release-start -DenableSshAgent=true -DreleaseVersion=%s -DdevelopmentVersion=%s'
 MAVEN_RELEASE_FINISH_CMD = '%s jgitflow:release-finish -DenableSshAgent=true'
 MAVEN_VERSION_SET_CMD = 'mvn versions:set -DnewVersion=%s -DgenerateBackupPoms=false'

@@ -1,52 +1,11 @@
-import sys
 from git import Repo
 import os.path as osp
-import gitlab
 import shutil
-import tempfile
-import fnmatch
-import re
 import argparse
-import os
-import subprocess
-
-# GITHUB_HOST = ' https://api.github.com'
-GITLAB_HOST = 'http://gitlab.example.com'
-# USER = 'michele'
-# PASSWORD = 'infocert1'
-API_TOKEN = 'spA3JG_Ukzoowxd__c5b'
-
-POM = 'pom.xml'
-
-PROJECT_GIT = 'git@gitlab.example.com:psd/%s.git'
-# CHECKOUT_ROOT = tempfile.gettempdir()
-# PROJECT_PATH = CHECKOUT_ROOT + "%s"
-
-MAVEN_RELEASE_FINISH_CMD = 'mvn clean package jgitflow:release-finish -DenableSshAgent=true'
-MAVEN_VERSION_SET_CMD = 'mvn versions:set -DnewVersion=%s-SNAPSHOT'
-MAVEN_VERSION_COMMIT_CMD = 'mvn versions:commit'
-
-TAG_NAME = '%s-RC%s'
-GIT_COMMIT_COMMENT = "update poms with SNAPSHOT version for jgitflow plugin"
-
-def execute_command(command):
-    process = subprocess.call([command], shell=True)
-    print "{%s}: %s" % (command, process)
-    if 0 != process:
-        sys.stderr.write("Error on command execution, bye")
-        sys.exit()
+from constants import *
 
 
-def find_root_project(project_path):
-    def shortest_path(paths):
-        return min(paths, key=lambda path: path.count('/'))
-
-    matches = []
-    for root, dirnames, filenames in os.walk(project_path):
-        for filename in fnmatch.filter(filenames, POM):
-            matches.append(root)
-            print '%s - %s' % (root, filename)
-    return shortest_path(matches)
+env = ''
 
 
 def get_start_branch(repo):
@@ -59,28 +18,15 @@ def get_start_branch(repo):
         result = re.match('origin/release/(.*)', branch.name)
         if result:
             release_version = result.group(1)
-            sys.stdout.write("Release branch found [%s], start from here? [y/n]" % branch.name)
+            sys.stdout.write("Release branch found [%s], start from here? [Y/n]" % branch.name)
             choice = raw_input().lower()
-            if choice == 'y':
+            if choice == 'y' or choice == '':
                 return release_version
             else:
                 sys.stderr.write("Ok, as you wish, bye!!")
                 sys.exit()
-    sys.stderr.write("Npo release branch found!!")
+    sys.stderr.write("No release branch found!!")
     sys.exit()
-
-
-def create_merge_request(release_branch, project):
-
-    gl = gitlab.Gitlab(GITLAB_HOST, API_TOKEN)
-    gl.auth()
-
-    project_id = gl.projects.get('psd/%s' % project).id
-
-    gl.project_mergerequests.create({'source_branch': release_branch,
-                                     'target_branch': 'master',
-                                     'title': 'Release_finish'},
-                                    project_id=project_id)
 
 
 def release_finish(project):
@@ -89,7 +35,10 @@ def release_finish(project):
 
     """
 
-    project_path = '%s/%s' % (tempfile.gettempdir(), project)
+    execute_command(ADD_SSH_CERT_CMD)
+    # execute_command(CHANGE_JAVA_HOME_COMMAND % JAVA_TARGET)
+
+    project_path = get_project_path(project)
 
     gt = Repo.clone_from(PROJECT_GIT % project, project_path).git
     # check for a release branch
@@ -114,38 +63,37 @@ def release_finish(project):
         repo.index.add([pom_to_add])
 
     print repo.git.status()
-    repo.index.commit(GIT_COMMIT_COMMENT)
+    repo.index.commit(GIT_COMMIT_COMMENT % version)
 
-    create_merge_request(release_branch, project)
+    #handle_opened_mr(project)
+    # TODO do it in release_start, in the end
+    #create_merge_request(release_branch, project)
 
-    execute_command(MAVEN_RELEASE_FINISH_CMD)
+    execute_command(MAVEN_RELEASE_FINISH_CMD % env)
 
-    repo.remote(name='origin').push(all=True)
-    repo.remote(name='origin').push(tags=True)
+    remote = repo.remote(name='origin')
 
-    # remove release branch
+    remote.push(all=True)
+    remote.push(tags=True)
+    remote.push(refspec=':%s' % release_branch)
+
     print "Done (I hopes)!!"
     shutil.rmtree(project_path)
 
 
-# posizionandosi nel branch di release:
-#    mvn versions:set -DnewVersion=x.y.z-SNAPSHOT```
-#    mvn versions:commit
-#    git commit -a -m "update poms with SNAPSHOT version for jgitflow plugin"
-#    Creare una merge request, impostare come branch sorgente quello di release e branch destinazione il master
-#        Associare la merge request alla milestone ```x.y.z```.
-#    mvn jgitflow:release-finish
-#    git push --all
-#   git push --tags
-#   git push origin :<branchName>
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Input parameters')
     parser.add_argument('repo_name', metavar='repository', type=str, help='Repository name')
+    parser.add_argument('-j', '--jre', nargs='?', type=str, default='6', help='JRE version')
+    parser.add_argument('-t', '--team', nargs='?', type=str, default='lcert', help='Development Team')
 
     args = parser.parse_args()
 
     print '%s ' % args.repo_name
 
-    release_finish(args.repo_name)
-    pass
+    env = set_environment(args.jre)
+    try:
+        release_finish(args.repo_name)
+    except Exception as err:
+        print("error: {0}".format(err))
+        shutil.rmtree(get_project_path(args.repo_name))
