@@ -8,6 +8,7 @@ import gitlab.v4
 import gitlab
 import tempfile
 from secrets import GITLAB_HOST
+from secrets import API_TOKEN
 
 MAVEN_RELEASE_START_CMD = '%s jgitflow:release-start -DenableSshAgent=true -DreleaseVersion=%s -DdevelopmentVersion=%s'
 MAVEN_RELEASE_FINISH_CMD = '%s jgitflow:release-finish -DenableSshAgent=true'
@@ -44,20 +45,31 @@ def find_root_project(project_path):
     return shortest_path(matches)
 
 
-def create_merge_request(release_branch, project):
+def create_merge_request(release_branch, project_name, approvers):
 
-    api_key = os.environ.get(API_TOKEN_ENV);
-
-    gl = gitlab.Gitlab(GITLAB_HOST, api_key)
+    gl = gitlab.Gitlab(GITLAB_HOST, API_TOKEN)
     gl.auth()
 
-    project_id = gl.projects.get('lcert/%s' % project).id
+    project = gl.projects.get('lcert/%s' % project_name)
 
-    return gl.project_mergerequests.create({'source_branch': release_branch,
+    print 'Project id: %s' % project.id
+
+    mr = project.mergerequests.create({'source_branch': release_branch,
                                             'target_branch': 'master',
                                             'title': 'Release_finish',
                                             'description': 'Automatically opened Merge-request'},
-                                           project_id=project_id)
+                                           project_id=project.id)
+
+    print 'Created merge request: %s' % mr
+
+    # set the approvers
+    mr_approvals = mr.approvals.get()
+    mr_approvals.approvals_before_merge = approvers
+    mr_approvals.save()
+
+    print 'Setted approvals to %s' % approvers
+
+    return mr
 
 
 def calculate_next_version(release_version):
